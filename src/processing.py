@@ -675,7 +675,10 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
             abs_path = Path(file_path).resolve()
             f.write(f"file '{abs_path}'\n")
     concat_input = ['-f', 'concat', '-safe', '0', '-i', concat_file]
-    if youtube_opt:
+    # Generierte Titelkarten sind für stream copy nicht zuverlässig bitstream-kompatibel.
+    # Deshalb das Endvideo mit aktiven Kapitelübergängen immer sauber neu encodieren.
+    force_concat_reencode = youtube_opt or chapter_transitions
+    if force_concat_reencode:
         concat_cmd = build_encode_cmd(
             input_args=concat_input, output_file=output_file,
             audio=True, quality='high',
@@ -690,6 +693,8 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
             no_bitrate_limit=no_bitrate_limit,
         )
     log("Kombiniere Segmente" + (" mit Übergängen" if chapter_transitions else "") + "...")
+    if chapter_transitions and not youtube_opt:
+        log("  ℹ️  Finale Zusammenführung wird trotz deaktivierter YouTube-Optimierung neu encodiert, damit alle Titelkarten erhalten bleiben.")
     log(f"  CMD: {' '.join(str(c) for c in concat_cmd)}")
     global _concat_proc
     _concat_proc = subprocess.Popen(concat_cmd, stdin=subprocess.DEVNULL)
