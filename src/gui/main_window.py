@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTime, QTimer
 from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor
 
+from shared.kaderblick_qt_theme import BrandHeaderWidget
 from src.gui.dialogs import TimeRangeDialog, YouTubeOptionsDialog
 from src.gui.worker import PipelineWorker
 
@@ -105,7 +106,7 @@ class VideoSegmentGUI(QMainWindow):
     # ── UI aufbauen ──────────────────────────────────────────────────────────
 
     def _init_ui(self):
-        self.setWindowTitle("KADERBLICK Video Combiner")
+        self.setWindowTitle("KADERBLICK - Video Combiner")
         self.setGeometry(100, 100, 1200, 800)
 
         # App-Icon setzen (Taskleiste + Fenster)
@@ -113,12 +114,24 @@ class VideoSegmentGUI(QMainWindow):
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
+        self._build_menu()
+
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._build_theme_banner(), 0)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(20, 18, 20, 16)
+        content_layout.setSpacing(16)
 
         splitter = QSplitter(Qt.Horizontal)
-        root.addWidget(splitter)
+        content_layout.addWidget(splitter, 1)
+        root.addWidget(content, 1)
 
         splitter.addWidget(self._build_left_panel())
         splitter.addWidget(self._build_right_panel())
@@ -128,6 +141,32 @@ class VideoSegmentGUI(QMainWindow):
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed)
+
+    def _build_menu(self):
+        menu_bar = self.menuBar()
+
+        file_menu = menu_bar.addMenu("Datei")
+        file_menu.addAction("Schnittliste laden …", self._load_csv_dialog)
+        file_menu.addAction("Schnittliste speichern …", self._save_csv_dialog)
+        file_menu.addSeparator()
+        file_menu.addAction("Beenden", self.close)
+
+        settings_menu = menu_bar.addMenu("Einstellungen")
+        settings_menu.addAction("Erweiterte Optionen …", self._show_advanced_options)
+
+    def _build_theme_banner(self):
+        banner = BrandHeaderWidget(
+            title="KADERBLICK",
+            subtitle="",
+            parent=self,
+            tone="brand",
+        )
+        banner.add_action("Schnittliste laden", self._load_csv_dialog)
+        banner.add_action("Schnittliste speichern", self._save_csv_dialog)
+        banner.add_action("Erweiterte Optionen", self._show_advanced_options)
+        banner.add_separator()
+        self.banner_run_button = banner.add_action("▶  Video erstellen", self._run_pipeline, primary=True)
+        return banner
 
     # ── Linkes Panel ─────────────────────────────────────────────────────────
 
@@ -202,19 +241,17 @@ class VideoSegmentGUI(QMainWindow):
 
         # Logo-Preview zentriert (horizontal + vertikal)
         self.logo_preview = QLabel()
+        self.logo_preview.setObjectName("logoPreview")
         self.logo_preview.setFixedSize(80, 80)
         self.logo_preview.setScaledContents(True)
-        self.logo_preview.setStyleSheet(
-            "border: 1px solid #999; background: #f0f0f0;"
-        )
         self.logo_preview.setAlignment(Qt.AlignCenter)
         self.logo_preview.setText("Kein\nLogo")
         lay.addWidget(self.logo_preview, 0, Qt.AlignHCenter)
 
         self.logo_path_label = QLabel("Kein Logo ausgewählt")
+        self.logo_path_label.setObjectName("mutedText")
         self.logo_path_label.setWordWrap(True)
         self.logo_path_label.setAlignment(Qt.AlignCenter)
-        self.logo_path_label.setStyleSheet("font-size: 9px; color: #666;")
         lay.addWidget(self.logo_path_label, 0, Qt.AlignHCenter)
 
         lay.addStretch()
@@ -254,25 +291,9 @@ class VideoSegmentGUI(QMainWindow):
 
         # Untere Zeile: Haupt-Aktion – groß und auffällig
         self.run_btn = QPushButton("▶  Video erstellen")
+        self.run_btn.setObjectName("primaryActionButton")
         self.run_btn.setMinimumHeight(52)
         self.run_btn.setFont(QFont(self.font().family(), 13, QFont.Bold))
-        self.run_btn.setStyleSheet(
-            "QPushButton {"
-            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            "    stop:0 #27ae60, stop:1 #1e8449);"
-            "  color: white;"
-            "  border: none; border-radius: 6px;"
-            "  padding: 8px 16px;"
-            "}"
-            "QPushButton:hover {"
-            "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            "    stop:0 #2ecc71, stop:1 #27ae60);"
-            "}"
-            "QPushButton:pressed { background: #1a7a3c; }"
-            "QPushButton:disabled {"
-            "  background: #b0b0b0; color: #e8e8e8;"
-            "}"
-        )
         self.run_btn.clicked.connect(self._run_pipeline)
         layout.addWidget(self.run_btn)
         return layout
@@ -333,7 +354,7 @@ class VideoSegmentGUI(QMainWindow):
 
         # Gesamtdauer-Anzeige
         self.total_duration_label = QLabel("Gesamtdauer: 00:00:00  (0 Segmente)")
-        self.total_duration_label.setStyleSheet("font-weight: bold; padding: 4px;")
+        self.total_duration_label.setObjectName("summaryLabel")
         lay.addWidget(self.total_duration_label)
 
         return grp
@@ -345,14 +366,10 @@ class VideoSegmentGUI(QMainWindow):
         # ── Statuszeile (Phase-Label + Laufzeit) ──────────────────────────
         status_row = QHBoxLayout()
         self.status_phase_label = QLabel("Bereit")
-        self.status_phase_label.setStyleSheet(
-            "font-weight: bold; color: #555; padding: 2px 0;"
-        )
+        self.status_phase_label.setObjectName("summaryLabel")
         status_row.addWidget(self.status_phase_label, 1)
         self.elapsed_label = QLabel("")
-        self.elapsed_label.setStyleSheet(
-            "color: #777; font-size: 10px; padding: 2px 6px;"
-        )
+        self.elapsed_label.setObjectName("statusMetaLabel")
         self.elapsed_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         status_row.addWidget(self.elapsed_label)
         lay.addLayout(status_row)
@@ -364,17 +381,6 @@ class VideoSegmentGUI(QMainWindow):
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat("Bereit")
         self.progress_bar.setFixedHeight(22)
-        self.progress_bar.setStyleSheet(
-            "QProgressBar {"
-            "  border: 1px solid #bbb; border-radius: 4px;"
-            "  background: #f0f0f0; text-align: center; font-size: 10px; "
-            "}"
-            "QProgressBar::chunk {"
-            "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
-            "    stop:0 #2980b9, stop:1 #6dd5fa);"
-            "  border-radius: 3px;"
-            "}"
-        )
         lay.addWidget(self.progress_bar)
 
         # ── Log-Ausgabe ────────────────────────────────────────

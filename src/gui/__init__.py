@@ -9,13 +9,15 @@ Modulstruktur:
 
 import sys
 from PyQt5.QtWidgets import QApplication
+
+from shared.kaderblick_qt_theme import apply_application_theme
 from src.gui.main_window import VideoSegmentGUI
 
 
 def main():
     """Startet die GUI-Anwendung."""
     app = QApplication(sys.argv)
-    app.setStyle('Fusion')
+    apply_application_theme(app)
     win = VideoSegmentGUI()
     win.show()
     sys.exit(app.exec_())

@@ -3,6 +3,8 @@
 
 Ein Werkzeug für Fußballvereine, das automatisch Spielszenen aus Videoaufnahmen zur Spielanalyse herausschneidet, mit Titeln versieht, zu einem Gesamtvideo zusammenfügt und optional direkt auf YouTube hochlädt – alles mit wenigen Klicks über eine grafische Oberfläche.
 
+Das verwendete Kaderblick-Qt-Theme ist projektübergreifend ausgelegt und kann auch in anderen Tools wiederverwendet werden. Das Banner und das Branding werden dabei zentral über das Theme bereitgestellt. Details stehen in [docs/THEME_REUSE.md](/media/Austausch/Projekte/fussballverein/tools/videoschnitt/docs/THEME_REUSE.md).
+
 <p align="center">
   <img src="assets/application_main.png" alt="Video Combiner — Hauptbildschirm" width="600">
 </p>
