@@ -103,12 +103,22 @@ def resolve_playlist(youtube, playlist_value, privacy='unlisted'):
     return new_id
 
 
-def upload_to_youtube(video_file, title, description, playlist_id=None, category_id='17', 
-                      privacy_status='private', tags=None):
-    print(f"\n📤 Lade Video zu YouTube hoch...")
-    print(f"   Datei: {video_file}")
-    print(f"   Titel: {title}")
-    print(f"   Privatsphäre: {privacy_status}")
+def upload_to_youtube(video_file, title, description, playlist_id=None, category_id='17',
+                      privacy_status='private', tags=None, progress_callback=None, log_callback=None):
+    def _log(msg):
+        if log_callback:
+            log_callback(msg)
+        print(msg)
+
+    def _progress(current, total, label):
+        if progress_callback:
+            progress_callback(current, total, label)
+
+    _log(f"\n📤 Lade Video zu YouTube hoch...")
+    _log(f"   Datei: {video_file}")
+    _log(f"   Titel: {title}")
+    _log(f"   Privatsphäre: {privacy_status}")
+    _progress(0, 0, "YouTube-Upload: Verbindung wird hergestellt …")
     try:
         youtube = authenticate_youtube_service()
         body = {
@@ -127,7 +137,8 @@ def upload_to_youtube(video_file, title, description, playlist_id=None, category
         media = MediaFileUpload(video_file, chunksize=CHUNK_SIZE, resumable=True)
         file_size = os.path.getsize(video_file)
         file_size_gb = file_size / (1024**3)
-        print(f"\n📤 Upload zu YouTube ({file_size_gb:.2f} GB, Chunk-Größe: 256 MB)")
+        _log(f"\n📤 Upload zu YouTube ({file_size_gb:.2f} GB, Chunk-Größe: 256 MB)")
+        _progress(0, 100, f"YouTube-Upload: 0%  –  0.00 / {file_size_gb:.2f} GB")
         request = youtube.videos().insert(
             part=','.join(body.keys()),
             body=body,
@@ -150,41 +161,55 @@ def upload_to_youtube(video_file, title, description, playlist_id=None, category
                     print(f"   [DEBUG] Chunk {chunk_count} fertig nach {chunk_time:.1f}s")
                     if chunk_count <= 5:
                         speed_mbps = (CHUNK_SIZE / (1024*1024) * 8) / chunk_time
-                        pbar.write(f"   ✓ Chunk {chunk_count}: {chunk_time:.1f}s → {speed_mbps:.1f} Mbit/s")
+                        msg = f"   ✓ Chunk {chunk_count}: {chunk_time:.1f}s → {speed_mbps:.1f} Mbit/s"
+                        pbar.write(msg)
+                        _log(msg)
                     if status:
-                        progress = int(status.progress() * 100)
-                        if progress > last_progress:
-                            pbar.update(progress - last_progress)
+                        pct = int(status.progress() * 100)
+                        if pct > last_progress:
+                            pbar.update(pct - last_progress)
                             time_since_update = time.time() - last_update_time
-                            if (progress % 5 == 0 and progress != last_progress) or time_since_update > 60:
+                            if (pct % 5 == 0 and pct != last_progress) or time_since_update > 60:
                                 uploaded_gb = (file_size * status.progress()) / (1024**3)
                                 elapsed = time.time() - start_time
                                 speed_mbps = (uploaded_gb * 8 * 1024) / elapsed if elapsed > 0 else 0
                                 remaining_gb = file_size_gb - uploaded_gb
                                 eta_minutes = (remaining_gb * 8 * 1024 / speed_mbps / 60) if speed_mbps > 0 else 0
-                                pbar.write(f"   → {progress}% ({uploaded_gb:.2f}/{file_size_gb:.2f} GB) - {speed_mbps:.1f} Mbit/s - ETA: {eta_minutes:.0f} min")
+                                msg = f"   → {pct}% ({uploaded_gb:.2f}/{file_size_gb:.2f} GB) - {speed_mbps:.1f} Mbit/s - ETA: {eta_minutes:.0f} min"
+                                pbar.write(msg)
+                                _log(msg)
+                                _progress(pct, 100, f"YouTube-Upload: {pct}%  –  {uploaded_gb:.2f}/{file_size_gb:.2f} GB  –  {speed_mbps:.1f} Mbit/s  –  ETA {eta_minutes:.0f} min")
                                 last_update_time = time.time()
-                            last_progress = progress
+                            last_progress = pct
                 except HttpError as e:
-                    pbar.write(f"\n   ❌ HTTP-Fehler: {e}")
+                    msg = f"\n   ❌ HTTP-Fehler: {e}"
+                    pbar.write(msg)
+                    _log(msg)
                     if e.resp.status in [500, 502, 503, 504]:
-                        pbar.write(f"   🔄 Server-Fehler, versuche erneut...")
+                        retry_msg = f"   🔄 Server-Fehler, versuche erneut..."
+                        pbar.write(retry_msg)
+                        _log(retry_msg)
                         time.sleep(5)
                     else:
                         raise
                 except Exception as e:
-                    pbar.write(f"\n   ❌ Fehler: {type(e).__name__}: {e}")
-                    pbar.write(f"   🔄 Versuche erneut...")
+                    msg = f"\n   ❌ Fehler: {type(e).__name__}: {e}"
+                    pbar.write(msg)
+                    _log(msg)
+                    retry_msg = f"   🔄 Versuche erneut..."
+                    pbar.write(retry_msg)
+                    _log(retry_msg)
                     time.sleep(2)
-        print("\n✓ Upload erfolgreich! YouTube verarbeitet das Video jetzt...")
+        _log("\n✓ Upload erfolgreich! YouTube verarbeitet das Video jetzt...")
+        _progress(100, 100, "YouTube-Upload: Abgeschlossen ✓")
         video_id = response['id']
         video_url = f"https://www.youtube.com/watch?v={video_id}"
-        print(f"   Video-ID: {video_id}")
-        print(f"   URL: {video_url}")
+        _log(f"   Video-ID: {video_id}")
+        _log(f"   URL: {video_url}")
         if playlist_id:
             try:
                 resolved_id = resolve_playlist(youtube, playlist_id, privacy=privacy_status)
-                print(f"\n📋 Füge Video zu Playlist hinzu (ID: {resolved_id})...")
+                _log(f"\n📋 Füge Video zu Playlist hinzu (ID: {resolved_id})...")
                 playlist_request = youtube.playlistItems().insert(
                     part='snippet',
                     body={
@@ -198,13 +223,13 @@ def upload_to_youtube(video_file, title, description, playlist_id=None, category
                     }
                 )
                 playlist_request.execute()
-                print("✓ Video zur Playlist hinzugefügt!")
+                _log("✓ Video zur Playlist hinzugefügt!")
             except HttpError as e:
-                print(f"⚠️  Fehler beim Hinzufügen zur Playlist: {e}")
+                _log(f"⚠️  Fehler beim Hinzufügen zur Playlist: {e}")
         return video_id
     except HttpError as e:
-        print(f"\n❌ HTTP-Fehler beim Upload: {e}")
+        _log(f"\n❌ HTTP-Fehler beim Upload: {e}")
         return None
     except Exception as e:
-        print(f"\n❌ Fehler beim Upload: {e}")
+        _log(f"\n❌ Fehler beim Upload: {e}")
         return None

@@ -26,11 +26,15 @@ class PipelineWorker(QThread):
     def run(self):
         from src.main_utils import run_video_pipeline
 
-        result = run_video_pipeline(
-            self.segments,
-            self.options,
-            log_callback=self.log_signal.emit,
-            progress_callback=self.progress_signal.emit,
-            segment_status_callback=self.segment_status_signal.emit,
-        )
+        try:
+            result = run_video_pipeline(
+                self.segments,
+                self.options,
+                log_callback=self.log_signal.emit,
+                progress_callback=self.progress_signal.emit,
+                segment_status_callback=self.segment_status_signal.emit,
+            )
+        except Exception as e:
+            result = {'success': False, 'cancelled': False,
+                      'output_file': None, 'video_id': None, 'error': str(e)}
         self.finished_signal.emit(result)

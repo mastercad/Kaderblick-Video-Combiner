@@ -3,14 +3,13 @@ Verarbeitung: create_ffmpeg_script, analyze_video_resolutions, extract_single_se
 """
 
 import multiprocessing
-from collections import OrderedDict
 import time
 import subprocess
 from pathlib import Path
 import tqdm
 from .ffmpeg_utils import retrieve_video_duration, extract_video_specs, is_video_file_complete
 from .textclip import create_textclip
-from .segment_utils import extract_date_from_filename
+from .segment_utils import extract_date_from_filename, build_game_info, resolve_segments_metadata
 import os
 import signal
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -18,8 +17,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 # Modul-weites Tracking für ffmpeg-Prozesskontrolle
 _concat_proc = None
 
+# Abbruch-Flag – wird per cancel_pipeline() gesetzt
+_cancel_requested = False
+
 # Cache für Hardware-Encoder-Erkennung
 _hw_encoder = None
+
+
+class PipelineCancelledError(Exception):
+    """Wird geraist, wenn der Nutzer die Pipeline abbricht."""
 
 
 def detect_hw_encoder():
@@ -216,7 +222,8 @@ def build_encode_cmd(*, input_args, output_file, video_filter=None,
 
 def cancel_pipeline():
     """Bricht die laufende Pipeline ab und beendet alle ffmpeg-Kindprozesse."""
-    global _concat_proc
+    global _concat_proc, _cancel_requested
+    _cancel_requested = True
     # Tracked concat-Prozess beenden
     if _concat_proc and _concat_proc.poll() is None:
         _concat_proc.terminate()
@@ -279,6 +286,8 @@ def analyze_video_resolutions(segments, input_dir, log_callback=None, progress_c
     pixel_formats = []
 
     for idx, seg in enumerate(segments, 1):
+        if _cancel_requested:
+            raise PipelineCancelledError("Abgebrochen")
         video_path = Path(input_dir) / seg['videoname']
         if progress_callback:
             progress_callback(idx - 1, len(segments),
@@ -419,6 +428,9 @@ def extract_single_segment(args):
         return (segment_file, processing_time, False, str(e), False)
 
 def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, target_width=1920, target_height=1080, target_fps=25, max_workers=None, debug_cache=False, youtube_opt=True, needs_reencoding=True, logo_path='input/teamlogo.png', log_callback=None, source_codec=None, source_pix_fmt=None, source_fps_raw=None, no_bitrate_limit=False, merge_videos=True, chapter_transitions=True, progress_callback=None, segment_status_callback=None):
+    global _cancel_requested
+    _cancel_requested = False
+
     def log(msg):
         if log_callback:
             log_callback(msg)
@@ -461,24 +473,9 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
     segments_dir = Path("output/segments")
     segments_dir.mkdir(parents=True, exist_ok=True)
     all_files = []
-    current_game_number = 1
-    last_game_date = None
     chapters = []
     current_time = 0.0
-    segment_number_in_game = 1
-    game_groups = OrderedDict()
-    for seg in segments:
-        game_date = extract_date_from_filename(seg['videoname'])
-        game_groups.setdefault(game_date, []).append(seg)
-    game_info = {}
-    for gdate, segs in game_groups.items():
-        titles = [s.get('title') for s in segs if s.get('title') and isinstance(s.get('title'), str) and s.get('title').strip()]
-        if len(titles) == len(segs) and len(segs) > 0:
-            game_info[gdate] = {'per_video_titles': True, 'game_title': None}
-        elif len(titles) > 0:
-            game_info[gdate] = {'per_video_titles': False, 'game_title': titles[0]}
-        else:
-            game_info[gdate] = {'per_video_titles': False, 'game_title': None}
+    segments_meta = resolve_segments_metadata(segments)
     total_segments = len(segments)
     start_time_overall = time.time()
     progress(0, total_segments, f"Phase 1: Vorbereitung – {total_segments} Segment(e) …")
@@ -491,25 +488,13 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
         video_path = Path(input_dir) / videoname
         if not video_path.exists():
             log(f"⚠️  Überspringe {video_path} (existiert nicht)")
+            progress(i + 1, total_segments, f"Phase 1: Segment {i + 1}/{total_segments} – übersprungen")
             continue
-        this_game_date = extract_date_from_filename(segment['videoname'])
-        if last_game_date is not None and this_game_date != last_game_date:
-            current_game_number += 1
-            segment_number_in_game = 1
-        last_game_date = this_game_date
-        ginfo = game_info.get(this_game_date, {'per_video_titles': False, 'game_title': None})
-        seg_title = segment.get('title') if segment.get('title') and isinstance(segment.get('title'), str) and segment.get('title').strip() else None
-        if seg_title:
-            title = seg_title
-        elif ginfo.get('game_title'):
-            title = ginfo['game_title']
-        else:
-            title = f"Spiel {current_game_number}"
-        sub = segment.get('sub_title') if segment.get('sub_title') and isinstance(segment.get('sub_title'), str) and segment.get('sub_title').strip() else None
-        if sub:
-            subtitle = sub
-        else:
-            subtitle = f"Segment {segment_number_in_game}"
+        meta = segments_meta[i]
+        title = meta['title']
+        subtitle = meta['subtitle']
+        current_game_number = meta['game_number']
+        segment_number_in_game = meta['segment_number']
         textclip_kwargs = dict(
             width=target_width, height=target_height,
             fps=target_fps, use_audio=use_audio, logo_path=logo_path,
@@ -559,8 +544,10 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
             'videoname': segment['videoname'],
             'start_minute': segment['start_minute']
         })
+        progress(i + 1, total_segments, f"Phase 1: Segment {i + 1}/{total_segments} vorbereitet …")
         current_time += duration
-        segment_number_in_game += 1
+    if _cancel_requested:
+        raise PipelineCancelledError("Abgebrochen")
     progress(0, len(segment_jobs), f"Phase 2: Extrahiere {len(segment_jobs)} Segment(e) …")
     log(f"\n🚀 Phase 2: Extrahiere {len(segment_jobs)} Segmente parallel (Worker: {max_workers})...")
 
@@ -598,7 +585,10 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
                             cached_segments += 1
                             seg_status(job['index'], '📦 Cache', 'cached')
                         else:
-                            seg_status(job['index'], f'✓ {processing_time:.1f} s', 'done')
+                            dur = int(job['duration'])
+                            dur_m, dur_s = divmod(dur, 60)
+                            dur_str = f"{dur_m}:{dur_s:02d} min" if dur_m > 0 else f"{dur_s} s"
+                            seg_status(job['index'], f'✓ {dur_str}', 'done')
                         cache_tag = " [Cache]" if was_cached else ""
                         log(f"  ✓ Segment {job['segment_number']:02d}: {Path(job['videoname']).name} @ {job['start_minute']}min ({processing_time:.1f}s){cache_tag}  [{completed_segments}/{len(segment_jobs)}]")
                         start_min = job['start_minute']
@@ -627,6 +617,9 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
                     seg_status(job['index'], '❌ Fehler', 'error')
                     log(f"\n❌ Exception bei Segment {job['segment_number']}: {e}")
                 pbar.update(1)
+                if _cancel_requested:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    raise PipelineCancelledError("Abgebrochen")
     if failed_segments:
         log(f"\n⚠️  {len(failed_segments)} Segment(e) fehlgeschlagen!")
         for job, error in failed_segments:
@@ -651,7 +644,9 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
         log(f"⏱️  Gesamte Verarbeitungszeit: {total_time_str}")
         log(f"{'='*60}\n")
         return
-    progress(len(segment_jobs), len(segment_jobs), "Phase 3: Segmente zusammenfügen …")
+    if _cancel_requested:
+        raise PipelineCancelledError("Abgebrochen")
+    progress(0, 0, "Phase 3: Segmente werden zusammengeführt …")
     log(f"\n🎬 Phase 3: Füge Dateien in korrekter Reihenfolge zusammen...")
     all_files = []
     for i, meta in enumerate(segment_metadata):
@@ -703,6 +698,7 @@ def assemble_ffmpeg_script(segments, input_dir, output_file, use_audio=True, tar
     _concat_proc = None
     if returncode != 0:
         raise subprocess.CalledProcessError(returncode, concat_cmd)
+    progress(1, 1, "Phase 3: Zusammenführung abgeschlossen")
     total_time = time.time() - start_time_overall
     if total_time < 60:
         total_time_str = f"{total_time:.0f} Sekunden"

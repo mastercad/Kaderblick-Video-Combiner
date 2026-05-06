@@ -20,14 +20,60 @@ from PyQt5.QtWidgets import (
     QLabel, QPushButton, QTableWidget, QTableWidgetItem, QComboBox,
     QLineEdit, QSpinBox, QTimeEdit, QCheckBox, QFileDialog, QMessageBox,
     QHeaderView, QSplitter, QGroupBox, QFormLayout,
-    QDialog, QTextEdit, QProgressBar,
+    QDialog, QTextEdit, QProgressBar, QAbstractItemView,
 )
-from PyQt5.QtCore import Qt, QTime, QTimer
+from PyQt5.QtCore import Qt, QTime, QTimer, QItemSelection, QItemSelectionModel
 from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor
 
 from shared.kaderblick_qt_theme import BrandHeaderWidget
 from src.gui.dialogs import TimeRangeDialog, YouTubeOptionsDialog
 from src.gui.worker import PipelineWorker
+
+
+def compute_move_up(segments: list, selected_rows: list) -> tuple:
+    """Verschiebt die markierten Zeilen jeweils eine Position nach oben.
+
+    Reine Funktion ohne Seiteneffekte – geeignet für Unit-Tests.
+
+    Args:
+        segments: Aktuelle Segmentliste.
+        selected_rows: Zu verschiebende Zeilen-Indizes (unsortiert, darf Duplikate enthalten).
+
+    Returns:
+        (new_segments, new_selected_rows): neue Liste + neue Auswahl.
+        Wenn kein Move möglich (leer oder Zeile 0 enthalten), wird die
+        *identische* Eingabeliste zurückgegeben (``new_segs is segments``).
+    """
+    rows = sorted(set(selected_rows))
+    if not rows or rows[0] == 0:
+        return segments, rows
+    segs = list(segments)
+    for r in rows:
+        segs[r - 1], segs[r] = segs[r], segs[r - 1]
+    return segs, [r - 1 for r in rows]
+
+
+def compute_move_down(segments: list, selected_rows: list) -> tuple:
+    """Verschiebt die markierten Zeilen jeweils eine Position nach unten.
+
+    Reine Funktion ohne Seiteneffekte – geeignet für Unit-Tests.
+
+    Args:
+        segments: Aktuelle Segmentliste.
+        selected_rows: Zu verschiebende Zeilen-Indizes (unsortiert, darf Duplikate enthalten).
+
+    Returns:
+        (new_segments, new_selected_rows): neue Liste + neue Auswahl.
+        Wenn kein Move möglich (leer oder letzte Zeile enthalten), wird die
+        *identische* Eingabeliste zurückgegeben (``new_segs is segments``).
+    """
+    rows = sorted(set(selected_rows))
+    if not rows or rows[-1] >= len(segments) - 1:
+        return segments, rows
+    segs = list(segments)
+    for r in reversed(rows):
+        segs[r], segs[r + 1] = segs[r + 1], segs[r]
+    return segs, [r + 1 for r in rows]
 
 
 class VideoSegmentGUI(QMainWindow):
@@ -326,6 +372,7 @@ class VideoSegmentGUI(QMainWindow):
         header.setSectionResizeMode(6, QHeaderView.Fixed)
         self.segments_table.setColumnWidth(6, 110)
         self.segments_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.segments_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.segments_table.cellChanged.connect(self._on_cell_changed)
         lay.addWidget(self.segments_table)
 
@@ -683,22 +730,36 @@ class VideoSegmentGUI(QMainWindow):
             self._csv_dirty = True
 
     def _move_segment_up(self):
-        row = self.segments_table.currentRow()
-        if row <= 0:
+        rows = sorted(set(i.row() for i in self.segments_table.selectedItems()))
+        new_segs, new_rows = compute_move_up(self.segments, rows)
+        if new_segs is self.segments:
             return
-        self.segments[row - 1], self.segments[row] = self.segments[row], self.segments[row - 1]
+        self.segments = new_segs
         self._csv_dirty = True
         self._update_table()
-        self.segments_table.selectRow(row - 1)
+        self._select_rows(new_rows)
 
     def _move_segment_down(self):
-        row = self.segments_table.currentRow()
-        if row < 0 or row >= len(self.segments) - 1:
+        rows = sorted(set(i.row() for i in self.segments_table.selectedItems()))
+        new_segs, new_rows = compute_move_down(self.segments, rows)
+        if new_segs is self.segments:
             return
-        self.segments[row], self.segments[row + 1] = self.segments[row + 1], self.segments[row]
+        self.segments = new_segs
         self._csv_dirty = True
         self._update_table()
-        self.segments_table.selectRow(row + 1)
+        self._select_rows(new_rows)
+
+    def _select_rows(self, rows):
+        """Markiert die angegebenen Zeilen in der Tabelle (Multi-Selection)."""
+        model = self.segments_table.model()
+        selection = QItemSelection()
+        n_cols = self.segments_table.columnCount()
+        for r in rows:
+            if 0 <= r < self.segments_table.rowCount():
+                selection.select(model.index(r, 0), model.index(r, n_cols - 1))
+        self.segments_table.selectionModel().select(
+            selection, QItemSelectionModel.ClearAndSelect
+        )
 
     # ── Segment-Aktionen ─────────────────────────────────────────────────────
 
@@ -975,9 +1036,11 @@ class VideoSegmentGUI(QMainWindow):
     def _on_progress(self, current: int, total: int, label: str):
         """Aktualisiert Fortschrittsbalken und Statuszeile."""
         if total > 0:
-            self.progress_bar.setMaximum(total)
+            self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(current)
             self.progress_bar.setFormat(f"{current} / {total}")
+        elif total == 0:
+            self.progress_bar.setRange(0, 0)  # indeterminierter Balken (animiert)
         self.status_phase_label.setText(label)
         self.status_phase_label.setStyleSheet(
             "font-weight: bold; color: #1a6fa8; padding: 2px 0;"
@@ -1040,11 +1103,20 @@ class VideoSegmentGUI(QMainWindow):
         )
 
         if result["success"]:
-            self.progress_bar.setValue(self.progress_bar.maximum())
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(100)
             self.progress_bar.setFormat("✓ Fertig!")
             self.status_phase_label.setText(f"✅ Fertig!  –  {elapsed_text}")
             self.status_phase_label.setStyleSheet(
                 "font-weight: bold; color: #27ae60; padding: 2px 0;"
+            )
+        elif result.get("cancelled"):
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("⛔ Abgebrochen")
+            self.status_phase_label.setText("⛔ Abgebrochen")
+            self.status_phase_label.setStyleSheet(
+                "font-weight: bold; color: #7f8c8d; padding: 2px 0;"
             )
         else:
             self.progress_bar.setFormat("❌ Fehler")
@@ -1063,7 +1135,7 @@ class VideoSegmentGUI(QMainWindow):
                 self._shutdown_system()
             else:
                 QMessageBox.information(self, "Fertig", msg)
-        else:
+        elif not result.get("cancelled") and result.get("error"):
             QMessageBox.critical(
                 self, "Fehler", f"Pipeline fehlgeschlagen:\n{result['error']}"
             )

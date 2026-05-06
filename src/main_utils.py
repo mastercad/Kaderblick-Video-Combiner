@@ -150,6 +150,7 @@ def run_video_pipeline(segments, options, log_callback=None, progress_callback=N
     else:
         # Video erstellen
         try:
+            from src.processing import PipelineCancelledError
             target_width, target_height, target_fps, needs_reencoding, \
                 source_codec, source_pix_fmt, source_fps_raw = \
                 analyze_video_resolutions(segments, input_dir, log_callback=log,
@@ -176,10 +177,15 @@ def run_video_pipeline(segments, options, log_callback=None, progress_callback=N
                 progress_callback=progress_callback,
                 segment_status_callback=segment_status_callback,
             )
+        except PipelineCancelledError:
+            reset_terminal()
+            log("⛔ Pipeline abgebrochen.")
+            return {'success': False, 'cancelled': True,
+                    'output_file': None, 'video_id': None, 'error': None}
         except Exception as e:
             reset_terminal()
-            return {'success': False, 'output_file': output_file,
-                    'video_id': None, 'error': str(e)}
+            return {'success': False, 'cancelled': False,
+                    'output_file': output_file, 'video_id': None, 'error': str(e)}
         finally:
             reset_terminal()
 
@@ -212,6 +218,8 @@ def run_video_pipeline(segments, options, log_callback=None, progress_callback=N
                 category_id=options.get('youtube_category', '17'),
                 privacy_status=options.get('youtube_privacy', 'unlisted'),
                 tags=tags,
+                progress_callback=progress_callback,
+                log_callback=log_callback,
             )
             if video_id:
                 log(f"Upload erfolgreich! https://www.youtube.com/watch?v={video_id}")
