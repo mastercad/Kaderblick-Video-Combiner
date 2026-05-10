@@ -156,7 +156,7 @@ class VideoSegmentGUI(QMainWindow):
         self.setGeometry(100, 100, 1200, 800)
 
         # App-Icon setzen (Taskleiste + Fenster)
-        icon_path = Path(__file__).resolve().parent.parent.parent / "assets" / "kaderblick.png"
+        icon_path = Path(__file__).resolve().parent.parent.parent / "assets" / "kaderblick_schnitt_appicon.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
@@ -955,7 +955,7 @@ class VideoSegmentGUI(QMainWindow):
     # Färbung der Status-Spalte
     _STATUS_COLORS = {
         'pending':  (QColor('#e8e8e8'), QColor('#555555')),   # grau
-        'done':     (QColor('#d4edda'), QColor('#155724')),   # grün
+        'done':     (QColor('#d0eaf7'), QColor('#1a5c7a')),   # teal
         'cached':   (QColor('#e8d5f5'), QColor('#5b2c6f')),   # violett
         'error':    (QColor('#f8d7da'), QColor('#721c24')),   # rot
     }

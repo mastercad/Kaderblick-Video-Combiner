@@ -47,13 +47,13 @@ QVBoxLayout = QtWidgets.QVBoxLayout
 QWidget = cast(type[Any], QtWidgets.QWidget)
 
 
-PRIMARY_GREEN = "#06B62E"
-PRIMARY_GREEN_DARK = "#059B28"
-PRIMARY_GREEN_SOFT = "#E9F8EC"
+PRIMARY_GREEN = "#1A99C4"
+PRIMARY_GREEN_DARK = "#1582A8"
+PRIMARY_GREEN_SOFT = "#E4F4FB"
 SURFACE = "#FFFFFF"
-SURFACE_ALT = "#F7FAF7"
-APP_BG = "#F3F5F2"
-BORDER = "#D6E3D6"
+SURFACE_ALT = "#F4FAFE"
+APP_BG = "#EFF5F9"
+BORDER = "#C2D9E8"
 TEXT = "#18212B"
 MUTED = "#667582"
 BRAND_HEADER_TEXT = "rgba(255, 255, 255, 0.92)"
@@ -196,7 +196,7 @@ def build_palette(seed: QPalette | None = None) -> QPalette:
     surface = QColor(SURFACE)
     surface_alt = QColor(SURFACE_ALT)
     app_bg = QColor(APP_BG)
-    selection = QColor("#D8F2DE")
+    selection = QColor("#D0EAF7")
     muted = QColor(MUTED)
 
     for group_name in ("Active", "Inactive", "Disabled"):
@@ -252,13 +252,16 @@ def build_stylesheet() -> str:
     QMenu {{
         background: {SURFACE};
         border: 1px solid {BORDER};
-        border-radius: 12px;
-        padding: 6px;
+        padding: 4px 0;
+    }}
+
+    QMenu * {{
+        background: transparent;
     }}
 
     QMenu::item {{
+        background: transparent;
         padding: 8px 12px;
-        border-radius: 8px;
     }}
 
     QMenu::item:selected {{
@@ -345,20 +348,20 @@ def build_stylesheet() -> str:
     QAbstractSpinBox,
     QTextEdit {{
         padding: 8px 10px;
-        selection-background-color: #D8F2DE;
+        selection-background-color: #D0EAF7;
         selection-color: {TEXT};
     }}
 
     QTableWidget {{
         alternate-background-color: {SURFACE_ALT};
-        gridline-color: #E8EFE8;
-        selection-background-color: #D8F2DE;
+        gridline-color: #D4E8F3;
+        selection-background-color: #D0EAF7;
         selection-color: {TEXT};
         padding: 4px;
     }}
 
     QHeaderView::section {{
-        background: #EFF7F0;
+        background: #E2F1F9;
         color: {TEXT};
         border: none;
         border-bottom: 1px solid {BORDER};
@@ -380,8 +383,8 @@ def build_stylesheet() -> str:
     }}
 
     QPushButton:disabled {{
-        background: #B9C9BA;
-        color: #F3F7F3;
+        background: #8BBCCD;
+        color: #EAF5FA;
     }}
 
     QPushButton#primaryActionButton {{
@@ -392,7 +395,7 @@ def build_stylesheet() -> str:
     }}
 
     QProgressBar {{
-        background: #ECF2ED;
+        background: #DFF0F8;
         min-height: 20px;
         text-align: center;
         font-weight: 600;
@@ -411,7 +414,7 @@ def build_stylesheet() -> str:
         width: 16px;
         height: 16px;
         border-radius: 8px;
-        border: 1px solid #9FB69F;
+        border: 1px solid #7DB4CA;
         background: {SURFACE};
     }}
 
@@ -431,7 +434,7 @@ def build_stylesheet() -> str:
     }}
 
     QLabel#logoPreview {{
-        background: #EEF4EE;
+        background: #E3F1F9;
         border: 1px solid {BORDER};
         border-radius: 12px;
         padding: 6px;
@@ -540,6 +543,21 @@ class BrandHeaderWidget(QFrame):
         self._actions_layout = QHBoxLayout()
         self._actions_layout.setContentsMargins(0, 0, 0, 0)
         self._actions_layout.setSpacing(6)
+
+        _icon_path = Path(__file__).resolve().parent.parent / "assets" / "kaderblick_video_cut_with_title_justify_invert.png"
+        if _icon_path.exists():
+            _icon_lbl = QLabel()
+            _pix = QtGui.QPixmap(str(_icon_path))
+            try:
+                _scaled = _pix.scaledToHeight(44, Qt.TransformationMode.SmoothTransformation)
+            except AttributeError:
+                _scaled = _pix.scaledToHeight(44, Qt.SmoothTransformation)
+            _icon_lbl.setPixmap(_scaled)
+            try:
+                _icon_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            except AttributeError:
+                _icon_lbl.setAttribute(Qt.WA_TranslucentBackground)
+            layout.addWidget(_icon_lbl)
 
         text_layout = QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)

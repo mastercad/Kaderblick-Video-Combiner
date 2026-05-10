@@ -423,7 +423,7 @@ videoschnitt/
 │   └── YOUTUBE_SETUP.md      ← YouTube-Einrichtungsanleitung
 │
 └── assets/
-    └── kaderblick.png         ← Programmicon
+    └── kaderblick_schnitt_appicon.png         ← Programmicon
 ```
 
 ---
